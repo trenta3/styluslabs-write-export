@@ -5,8 +5,7 @@ from svglib.svglib import svg2rlg
 from reportlab.graphics import renderPDF
 from reportlab.pdfgen import canvas
 
-# TODO: Make links work when exporting to pdf
-# TODO: Add title, author, description, etc. annotations to pdf informations
+# TODO: Make links work when exporting to pdf (should modify svglib)
 # TODO: Add ability to show title, author, description, etc. in html body
 # TODO: Add ability to export in the form of simple html slides (slide number, left and right arrows)
 # TODO: Add ability to add footer and header to html pages directly from other files
@@ -47,6 +46,12 @@ def convert_write_file(input, output, format="html", title=None, author=None, de
             outcontent += f"<meta name='keywords' content='{keywords}'>"
     elif format == "pdf":
         outcontent = canvas.Canvas(output)
+        if title is not None:
+            outcontent.setTitle(title)
+        if author is not None:
+            outcontent.setAuthor(author)
+        if description is not None:
+            outcontent.setSubject(description)
     # Now iterate over each page doing necessary conversions
     for idx, page in enumerate(pages):
         # Get current page width and height (typically in pixels)
