@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-import gzip
+import io, gzip
 import xml.etree.ElementTree as ET
+from svglib.svglib import svg2rlg
+from reportlab.graphics import renderPDF
+from reportlab.pdfgen import canvas
 
-# TODO: Export to multi-page pdf using ReportLab and/or svglib
-# TODO: Add ability to export in the form of simple html slides
+# TODO: Make links work when exporting to pdf
+# TODO: Add title, author, description, etc. annotations to pdf informations
+# TODO: Add ability to show title, author, description, etc. in html body
+# TODO: Add ability to export in the form of simple html slides (slide number, left and right arrows)
+# TODO: Add ability to add footer and header to html pages directly from other files
 
 namespaces = {
     "": "http://www.w3.org/2000/svg",
@@ -28,8 +34,8 @@ def convert_write_file(input, output, format="html", title=None, author=None, de
     # Collect all pages from the root
     pages = write_root.findall("svg[@class='write-page']", namespaces=namespaces)
     # Create the heading of the format
-    outcontent = ""
     if format == "html":
+        outcontent = ""
         outcontent += "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
         if title is not None:
             outcontent += f"<title>{title}</title>"
@@ -39,21 +45,35 @@ def convert_write_file(input, output, format="html", title=None, author=None, de
             outcontent += f"<meta name='description' content='{description}'>"
         if keywords is not None:
             outcontent += f"<meta name='keywords' content='{keywords}'>"
+    elif format == "pdf":
+        outcontent = canvas.Canvas(output)
     # Now iterate over each page doing necessary conversions
     for idx, page in enumerate(pages):
+        # Get current page width and height (typically in pixels)
+        pgwidth, pgheight = page.get("width"), page.get("height")
         for element in page.findall(".//a[@xlink:href]", namespaces=namespaces):
             # Change xlink references to real html links
             element.attrib["href"] = element.get("{" + namespaces['xlink'] + "}href")
             if element.get("target") is not None:
                 # Change external links to open in blank pages
                 element.attrib["target"] = "_blank"
-        outcontent += ET.tostring(page).decode("UTF-8")
+        if format == "html":
+            outcontent += ET.tostring(page).decode("UTF-8")
+        elif format == "pdf":
+            rlpage = svg2rlg(io.BytesIO(ET.tostring(page)))
+            # Set the page sizes for the current page
+            rlwidth, rlheight = int(pgwidth[:-2]), int(pgheight[:-2])
+            outcontent.setPageSize((rlwidth, rlheight))
+            renderPDF.draw(rlpage, outcontent, x=0, y=0)
+            outcontent.showPage()
     # Add the final parts of the format
     if format == "html":
         outcontent += "</body></html>"
-    # Write the translated content to the output file
-    with open(output, "wb") as fout:
-        fout.write(outcontent.encode("UTF-8"))
+        # Write the translated content to the output file
+        with open(output, "wb") as fout:
+            fout.write(outcontent.encode("UTF-8"))
+    elif format == "pdf":
+        outcontent.save()
 
 
 if __name__ == "__main__":
