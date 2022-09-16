@@ -8,8 +8,10 @@ from reportlab.pdfgen import canvas
 # TODO: Add ability to show title, author, description, etc. in html body
 # TODO: Add ability to export in the form of simple html slides (slide number, left and right arrows)
 # TODO: Add ability to add footer and header to html pages directly from other files
+# TODO: Add exports to multiple image files in a single folder (for png, jpg)
 
-__VERSION__ = "0.0.0"
+
+__VERSION__ = "0.1.0"
 
 namespaces = {
     "": "http://www.w3.org/2000/svg",
@@ -47,13 +49,15 @@ def convert_write_file(input, output, format="html", title=None, author=None, de
             outcontent += f"<meta name='keywords' content='{keywords}'>"
     elif format == "pdf":
         outcontent = canvas.Canvas(output)
-        outcontent.setCreator(f"StylusLabs Write Export Script {__VERSION__}")
-        if title is not None:
-            outcontent.setTitle(title)
-        if author is not None:
-            outcontent.setAuthor(author)
-        if description is not None:
-            outcontent.setSubject(description)
+        # TODO: Modify also the ModDate from the given dates
+        # See https://hg.reportlab.com/hg-public/reportlab/file/61ba11e7d143/src/reportlab/pdfbase/pdfdoc.py#l1522
+        outcontent._doc.info.title = title if title is not None else "Untitled Document"
+        outcontent._doc.info.author = author if author is not None else "Anonymous"
+        outcontent._doc.info.subject = description if description is not None else "Unspecified"
+        outcontent._doc.info.keywords = keywords if keywords is not None else ""
+        outcontent._doc.info.producer = "ReportLab PDF Library"
+        outcontent._doc.info.creator = f"StylusLabs Write Export Script {__VERSION__}"
+        
     # Now iterate over each page doing necessary conversions
     for idx, page in enumerate(pages):
         # Get current page width and height (typically in pixels)
