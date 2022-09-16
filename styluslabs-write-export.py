@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-import io, gzip
+import io, re, gzip
 import xml.etree.ElementTree as ET
 from svglib.svglib import svg2rlg
 from reportlab.graphics import renderPDF
 from reportlab.pdfgen import canvas
 
-# TODO: Make links work when exporting to pdf (should modify svglib)
 # TODO: Add ability to show title, author, description, etc. in html body
 # TODO: Add ability to export in the form of simple html slides (slide number, left and right arrows)
 # TODO: Add ability to add footer and header to html pages directly from other files
+
+__VERSION__ = "0.0.0"
 
 namespaces = {
     "": "http://www.w3.org/2000/svg",
@@ -31,7 +32,7 @@ def convert_write_file(input, output, format="html", title=None, author=None, de
     if write_root is None:
         raise Exception(f"StylusLabs Write document root not found.\nEnsure the input file comes from Write!")
     # Collect all pages from the root
-    pages = write_root.findall("svg[@class='write-page']", namespaces=namespaces)
+    pages = write_root.findall("svg[@class='write-page']", namespaces)
     # Create the heading of the format
     if format == "html":
         outcontent = ""
@@ -46,6 +47,7 @@ def convert_write_file(input, output, format="html", title=None, author=None, de
             outcontent += f"<meta name='keywords' content='{keywords}'>"
     elif format == "pdf":
         outcontent = canvas.Canvas(output)
+        outcontent.setCreator(f"StylusLabs Write Export Script {__VERSION__}")
         if title is not None:
             outcontent.setTitle(title)
         if author is not None:
@@ -55,21 +57,48 @@ def convert_write_file(input, output, format="html", title=None, author=None, de
     # Now iterate over each page doing necessary conversions
     for idx, page in enumerate(pages):
         # Get current page width and height (typically in pixels)
-        pgwidth, pgheight = page.get("width"), page.get("height")
-        for element in page.findall(".//a[@xlink:href]", namespaces=namespaces):
+        pgwidth, pgheight = int(page.get("width")[:-2]), int(page.get("height")[:-2])
+        pagelinks = []
+        pagebookmarks = []
+        for element in page.findall(".//path[@id][@class='bookmark']", namespaces):
+            bookmark = {}
+            bookmark["key"] = element.get("id")
+            posmatch = re.search(r"translate\(([0-9\.]+),([0-9\.]+)\)", element.get("transform"))
+            if not posmatch:
+                raise Exception(f"Position matching for bookmark {ET.tostring(element).decode('utf-8')} failed")
+            bookmark["top"] = pgheight - float(posmatch.group(1))
+            bookmark["left"] = float(posmatch.group(2))
+            pagebookmarks.append(bookmark)
+        for element in page.findall(".//a[@xlink:href]", namespaces):
+            link = {}
             # Change xlink references to real html links
             element.attrib["href"] = element.get("{" + namespaces['xlink'] + "}href")
+            link["href"] = element.attrib["href"]
             if element.get("target") is not None:
                 # Change external links to open in blank pages
                 element.attrib["target"] = "_blank"
+                link["target"] = element.attrib["target"]
+            linkRect = element.find("rect", namespaces)
+            rectx, recty, rectw, recth = (float(linkRect.get("x")), float(linkRect.get("y")),
+                                          float(linkRect.get("width")), float(linkRect.get("height")))
+            link["rect"] = (rectx, pgheight - recty, rectx + rectw, pgheight - (recty + recth))
+            pagelinks.append(link)
         if format == "html":
             outcontent += ET.tostring(page).decode("UTF-8")
         elif format == "pdf":
             rlpage = svg2rlg(io.BytesIO(ET.tostring(page)))
             # Set the page sizes for the current page
-            rlwidth, rlheight = int(pgwidth[:-2]), int(pgheight[:-2])
-            outcontent.setPageSize((rlwidth, rlheight))
+            outcontent.setPageSize((pgwidth, pgheight))
             renderPDF.draw(rlpage, outcontent, x=0, y=0)
+            # Add the current page bookmarks
+            for bookmark in pagebookmarks:
+                outcontent.bookmarkHorizontalAbsolute(bookmark["key"], top=bookmark["top"], fit="Fit")
+            # Now we add the links using canvas elements
+            for link in pagelinks:
+                if link["href"].startswith("#"):
+                    outcontent.linkRect("", link["href"][1:], Rect=link["rect"])
+                else:
+                    outcontent.linkURL(link["href"], rect=link["rect"], relative=1)
             outcontent.showPage()
     # Add the final parts of the format
     if format == "html":
